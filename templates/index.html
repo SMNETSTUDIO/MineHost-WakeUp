@@ -57,6 +57,32 @@
                 </div>
             </div>
 
+            <!-- 服务器控制台 -->
+            <div class="card full-width">
+                <h2 class="card-title">
+                    🖥️ 服务器控制台
+                    <span class="console-status" id="consoleStatus">未连接</span>
+                </h2>
+                <div class="console-container">
+                    <div class="console-output" id="consoleOutput">
+                        <div class="console-line system">等待服务器运行...</div>
+                    </div>
+                    <div class="console-input-wrapper">
+                        <span class="console-prompt">></span>
+                        <input 
+                            type="text" 
+                            class="console-input" 
+                            id="consoleInput" 
+                            placeholder="输入命令 (例如: list, help, stop)" 
+                            disabled
+                        />
+                        <button class="btn-console-send" id="btnConsoleSend" onclick="sendConsoleCommand()" disabled>
+                            发送
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             <!-- 操作日志 -->
             <div class="card full-width">
                 <h2 class="card-title">操作日志</h2>
