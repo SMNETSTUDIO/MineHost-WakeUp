@@ -17,30 +17,25 @@ class MinecraftBot(ClientProtocol):
         self.display_name = factory.display_name
     
     def connection_made(self):
-        """连接建立时调用"""
         super().connection_made()
         logger.info(f"机器人 {self.display_name} 已连接到服务器")
         if self.factory.bot_manager:
             self.factory.bot_manager.on_connected()
     
     def connection_lost(self, reason=None):
-        """连接丢失时调用（网络断开、服务器崩溃等）"""
         super().connection_lost(reason)
         logger.info(f"机器人 {self.display_name} 连接丢失: {reason}")
         if self.factory.bot_manager:
             self.factory.bot_manager.on_disconnected(f"连接丢失: {reason}")
         
     def packet_position_look(self, buff):
-        """处理服务器发来的位置和视角包"""
         buff.unpack('dddff?')
         
     def packet_keep_alive(self, buff):
-        """响应服务器的 keep-alive 包"""
         identifier = buff.unpack('Q')
         self.send_packet('keep_alive', self.buff_type.pack('Q', identifier))
         
     def packet_disconnect(self, buff):
-        """处理服务器主动断开连接"""
         reason = buff.unpack_chat()
         logger.info(f"机器人 {self.display_name} 被服务器断开: {reason}")
         if self.factory.bot_manager:
@@ -62,7 +57,6 @@ class BotFactory(ClientFactory):
         })()
         
     def buildProtocol(self, addr):
-        """构建协议实例"""
         protocol = self.protocol(self, addr)
         protocol.display_name = self.display_name
         return protocol
@@ -82,9 +76,11 @@ class BotManager:
         self.factory = None
         self.connector = None
         
-        self.max_reconnect_attempts = 3
-        self.reconnect_delay = 5
+        # 重连配置
+        self.max_reconnect_attempts = 5
+        self.reconnect_delay = 10  # 增加到10秒，确保前一个连接完全断开
         self.current_reconnect_attempt = 0
+        self.is_reconnecting = False  # 防止多次重连
         
         self.lock = threading.Lock()
         
@@ -185,6 +181,7 @@ class BotManager:
             # 临时禁用自动加入以防止重连
             auto_join_backup = self.auto_join
             self.auto_join = False
+            self.is_reconnecting = False  # 取消任何重连计划
             
             if self.connector and self.reactor_running:
                 connector_ref = self.connector
@@ -221,6 +218,7 @@ class BotManager:
         self.add_log(f"机器人 {self.username} 成功加入服务器！", 'success')
         self.set_status('online')
         self.current_reconnect_attempt = 0  # 重置重连计数
+        self.is_reconnecting = False  # 重置重连标志
     
     def on_disconnected(self, reason):
         """连接断开时调用"""
@@ -231,24 +229,38 @@ class BotManager:
         self.factory = None
         self.set_status('offline')
         
-        # 尝试重连（如果启用了自动加入且有服务器地址）
-        if self.auto_join and self.host:
+        # 尝试重连（如果启用了自动加入且有服务器地址，且未在重连中）
+        if self.auto_join and self.host and not self.is_reconnecting:
             self.add_log("准备自动重连...", 'info')
             self.schedule_reconnect()
+        elif self.is_reconnecting:
+            self.add_log("已有重连任务在执行中，跳过本次重连", 'info')
     
     def schedule_reconnect(self):
+        """计划重连"""
         if self.current_reconnect_attempt >= self.max_reconnect_attempts:
             self.add_log(f"已达到最大重连次数 ({self.max_reconnect_attempts})，停止重连", 'error')
             self.set_status('error')
+            self.is_reconnecting = False
             return
         
         self.current_reconnect_attempt += 1
-        self.add_log(f"将在 {self.reconnect_delay} 秒后尝试重连 (尝试 {self.current_reconnect_attempt}/{self.max_reconnect_attempts})...", 'info')
+        self.is_reconnecting = True
+        
+        # 计算实际延迟：基础延迟 + 递增延迟（避免频繁重连）
+        actual_delay = self.reconnect_delay + (self.current_reconnect_attempt - 1) * 5
+        self.add_log(f"将在 {actual_delay} 秒后尝试重连 (尝试 {self.current_reconnect_attempt}/{self.max_reconnect_attempts})...", 'info')
         
         def reconnect():
-            time.sleep(self.reconnect_delay)
+            time.sleep(actual_delay)
             if self.host and self.status != 'online':
-                self.join(f"{self.host}:{self.port}")
+                self.add_log(f"开始第 {self.current_reconnect_attempt} 次重连尝试...", 'info')
+                success = self.join(f"{self.host}:{self.port}")
+                if not success:
+                    self.is_reconnecting = False
+            else:
+                self.add_log("重连已取消（服务器已在线或无服务器地址）", 'info')
+                self.is_reconnecting = False
         
         reconnect_thread = threading.Thread(target=reconnect, daemon=True)
         reconnect_thread.start()
