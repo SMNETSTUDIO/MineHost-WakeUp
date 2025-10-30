@@ -292,7 +292,22 @@ async function connectConsole() {
         
         consoleWebSocket.onmessage = (event) => {
             // 接收控制台消息
-            addConsoleMessage(event.data, 'log');
+            try {
+                // 尝试解析 JSON 格式
+                const message = JSON.parse(event.data);
+                if (message.content) {
+                    // 按行分割并显示
+                    const lines = message.content.split('\n');
+                    lines.forEach(line => {
+                        if (line.trim()) {
+                            addConsoleMessage(line, 'log');
+                        }
+                    });
+                }
+            } catch (e) {
+                // 如果不是 JSON，直接显示
+                addConsoleMessage(event.data, 'log');
+            }
         };
         
         consoleWebSocket.onerror = (error) => {
@@ -346,7 +361,7 @@ function scheduleReconnect() {
             addConsoleMessage('正在重新连接...', 'system');
             connectConsole();
         }
-    }, 5000); // 5 秒后重连
+    }, 5000);
 }
 
 // 更新控制台状态显示
@@ -363,29 +378,34 @@ function updateConsoleStatus(status, text) {
     statusElement.textContent = text;
 }
 
-// 添加控制台消息
+function stripAnsiCodes(text) {
+    if (!text) return '';
+    return text
+        .replace(/[\u001B\u009B][[\]()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '')
+        .replace(/[\u0000-\u0008\u000B-\u000C\u000E-\u001F\u007F-\u009F]/g, '');
+}
+
 function addConsoleMessage(message, type = 'log') {
     const output = document.getElementById('consoleOutput');
     const line = document.createElement('div');
     line.className = `console-line ${type}`;
     
-    // 添加时间戳
+    const cleanMessage = stripAnsiCodes(message);
+    
     const timestamp = new Date().toLocaleTimeString('zh-CN', { hour12: false });
     
     if (type === 'command') {
-        line.textContent = `> ${message}`;
+        line.textContent = `> ${cleanMessage}`;
     } else if (type === 'system' || type === 'error') {
-        line.textContent = `[${timestamp}] ${message}`;
+        line.textContent = `[${timestamp}] ${cleanMessage}`;
     } else {
-        line.textContent = message;
+        line.textContent = cleanMessage;
     }
     
     output.appendChild(line);
     
-    // 自动滚动到底部
     output.scrollTop = output.scrollHeight;
     
-    // 限制最多显示 500 行
     while (output.children.length > 500) {
         output.removeChild(output.firstChild);
     }
@@ -399,7 +419,6 @@ function enableConsoleInput() {
     input.disabled = false;
     button.disabled = false;
     
-    // 添加回车键发送
     input.onkeypress = (e) => {
         if (e.key === 'Enter') {
             sendConsoleCommand();
