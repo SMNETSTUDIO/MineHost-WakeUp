@@ -58,7 +58,7 @@ docker build -t minehost-monitor .
 # 运行容器
 docker run -d -p 7860:7860 \
   -e MINEHOST_COOKIE="your_cookie_here" \
-  -e MINEHOST_SERVER_ID="181408" \
+  -e MINEHOST_SERVER_ID="XXXXXX" \
   -e WEB_PASSWORD="your_password" \
   --name minehost-monitor \
   minehost-monitor
@@ -72,12 +72,12 @@ pip install -r requirements.txt
 
 # 设置环境变量（Windows PowerShell）
 $env:MINEHOST_COOKIE="your_cookie_here"
-$env:MINEHOST_SERVER_ID="181408"
+$env:MINEHOST_SERVER_ID="XXXXXX"
 $env:WEB_PASSWORD="your_password"
 
 # 设置环境变量（Linux/Mac）
 export MINEHOST_COOKIE="your_cookie_here"
-export MINEHOST_SERVER_ID="181408"
+export MINEHOST_SERVER_ID="XXXXXX"
 export WEB_PASSWORD="your_password"
 
 # 运行应用
@@ -90,7 +90,7 @@ python app.py
 
 ### 登录
 
-首次访问会要求输入密码，密码为环境变量 `WEB_PASSWORD` 设置的值（默认：`admin123`）。
+首次访问会要求输入密码，密码为环境变量 `WEB_PASSWORD` 设置的值（默认：`admin`）。
 
 ### 界面说明
 
