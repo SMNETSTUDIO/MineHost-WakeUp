@@ -1,5 +1,8 @@
 // 全局状态
 let autoCheckEnabled = true;
+let consoleWebSocket = null;
+let lastServerStatus = 'unknown';
+let reconnectTimer = null;
 
 // 页面加载完成后初始化
 document.addEventListener('DOMContentLoaded', function() {
@@ -75,6 +78,9 @@ async function updateStatus() {
         
         // 更新日志
         updateLogs(data.logs || []);
+        
+        // 管理控制台连接
+        manageConsoleConnection(data.status);
         
     } catch (error) {
         console.error('更新状态失败:', error);
@@ -242,3 +248,206 @@ style.textContent = `
     }
 `;
 document.head.appendChild(style);
+
+// ==================== 控制台功能 ====================
+
+// 管理控制台连接
+function manageConsoleConnection(serverStatus) {
+    if (serverStatus === 'running' && lastServerStatus !== 'running') {
+        // 服务器刚启动，连接控制台
+        connectConsole();
+    } else if (serverStatus !== 'running' && lastServerStatus === 'running') {
+        // 服务器停止，断开控制台
+        disconnectConsole();
+    }
+    lastServerStatus = serverStatus;
+}
+
+// 连接控制台
+async function connectConsole() {
+    try {
+        updateConsoleStatus('connecting', '连接中...');
+        
+        const response = await fetch('/api/console-info');
+        if (!response.ok) {
+            throw new Error('获取连接信息失败');
+        }
+        
+        const data = await response.json();
+        
+        if (!data.success) {
+            addConsoleMessage(data.message, 'error');
+            updateConsoleStatus('disconnected', '未连接');
+            return;
+        }
+        
+        // 创建 WebSocket 连接
+        consoleWebSocket = new WebSocket(data.ws_url);
+        
+        consoleWebSocket.onopen = () => {
+            updateConsoleStatus('connected', '已连接');
+            addConsoleMessage('控制台已连接', 'system');
+            enableConsoleInput();
+        };
+        
+        consoleWebSocket.onmessage = (event) => {
+            // 接收控制台消息
+            addConsoleMessage(event.data, 'log');
+        };
+        
+        consoleWebSocket.onerror = (error) => {
+            console.error('WebSocket 错误:', error);
+            addConsoleMessage('连接错误', 'error');
+        };
+        
+        consoleWebSocket.onclose = () => {
+            updateConsoleStatus('disconnected', '未连接');
+            addConsoleMessage('控制台已断开', 'system');
+            disableConsoleInput();
+            
+            // 如果服务器仍在运行，尝试重连
+            if (lastServerStatus === 'running') {
+                scheduleReconnect();
+            }
+        };
+        
+    } catch (error) {
+        console.error('连接控制台失败:', error);
+        addConsoleMessage('连接失败: ' + error.message, 'error');
+        updateConsoleStatus('disconnected', '未连接');
+    }
+}
+
+// 断开控制台
+function disconnectConsole() {
+    if (consoleWebSocket) {
+        consoleWebSocket.close();
+        consoleWebSocket = null;
+    }
+    
+    if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+    }
+    
+    updateConsoleStatus('disconnected', '未连接');
+    disableConsoleInput();
+    addConsoleMessage('服务器已停止', 'system');
+}
+
+// 计划重连
+function scheduleReconnect() {
+    if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+    }
+    
+    reconnectTimer = setTimeout(() => {
+        if (lastServerStatus === 'running') {
+            addConsoleMessage('正在重新连接...', 'system');
+            connectConsole();
+        }
+    }, 5000); // 5 秒后重连
+}
+
+// 更新控制台状态显示
+function updateConsoleStatus(status, text) {
+    const statusElement = document.getElementById('consoleStatus');
+    statusElement.className = 'console-status';
+    
+    if (status === 'connected') {
+        statusElement.classList.add('connected');
+    } else if (status === 'connecting') {
+        statusElement.classList.add('connecting');
+    }
+    
+    statusElement.textContent = text;
+}
+
+// 添加控制台消息
+function addConsoleMessage(message, type = 'log') {
+    const output = document.getElementById('consoleOutput');
+    const line = document.createElement('div');
+    line.className = `console-line ${type}`;
+    
+    // 添加时间戳
+    const timestamp = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    
+    if (type === 'command') {
+        line.textContent = `> ${message}`;
+    } else if (type === 'system' || type === 'error') {
+        line.textContent = `[${timestamp}] ${message}`;
+    } else {
+        line.textContent = message;
+    }
+    
+    output.appendChild(line);
+    
+    // 自动滚动到底部
+    output.scrollTop = output.scrollHeight;
+    
+    // 限制最多显示 500 行
+    while (output.children.length > 500) {
+        output.removeChild(output.firstChild);
+    }
+}
+
+// 启用控制台输入
+function enableConsoleInput() {
+    const input = document.getElementById('consoleInput');
+    const button = document.getElementById('btnConsoleSend');
+    
+    input.disabled = false;
+    button.disabled = false;
+    
+    // 添加回车键发送
+    input.onkeypress = (e) => {
+        if (e.key === 'Enter') {
+            sendConsoleCommand();
+        }
+    };
+}
+
+// 禁用控制台输入
+function disableConsoleInput() {
+    const input = document.getElementById('consoleInput');
+    const button = document.getElementById('btnConsoleSend');
+    
+    input.disabled = true;
+    button.disabled = true;
+    input.onkeypress = null;
+}
+
+// 发送控制台命令
+async function sendConsoleCommand() {
+    const input = document.getElementById('consoleInput');
+    const command = input.value.trim();
+    
+    if (!command) {
+        return;
+    }
+    
+    // 显示命令
+    addConsoleMessage(command, 'command');
+    
+    // 清空输入框
+    input.value = '';
+    
+    try {
+        const response = await fetch('/api/console-command', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ command })
+        });
+        
+        const data = await response.json();
+        
+        if (!data.success) {
+            addConsoleMessage(`命令发送失败: ${data.message}`, 'error');
+        }
+        
+    } catch (error) {
+        addConsoleMessage(`命令发送异常: ${error.message}`, 'error');
+    }
+}
