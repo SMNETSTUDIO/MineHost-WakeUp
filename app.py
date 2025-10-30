@@ -5,6 +5,7 @@ from functools import wraps
 import requests
 import atexit
 from config import Config
+from bot import get_bot_instance
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = Config.SECRET_KEY
@@ -18,6 +19,16 @@ server_status = {
     'auto_start_count': 0,
     'auto_check_enabled': True
 }
+
+# 机器人状态
+bot_status = {
+    'status': 'offline',
+    'username': Config.BOT_USERNAME,
+    'auto_join': Config.BOT_AUTO_JOIN
+}
+
+# 初始化机器人实例
+bot = None
 
 # 日志列表（保存最近 100 条）
 logs = []
@@ -36,11 +47,36 @@ def add_log(message, level='info'):
         logs.pop()
     print(f"[{timestamp}] [{level.upper()}] {message}")
 
+def init_bot():
+    """初始化机器人"""
+    global bot, bot_status
+    try:
+        bot = get_bot_instance(
+            username=Config.BOT_USERNAME,
+            auto_join=Config.BOT_AUTO_JOIN,
+            log_callback=add_log
+        )
+        bot_status['username'] = Config.BOT_USERNAME
+        bot_status['auto_join'] = Config.BOT_AUTO_JOIN
+        add_log(f"机器人已初始化: {Config.BOT_USERNAME}", 'info')
+    except Exception as e:
+        add_log(f"机器人初始化失败: {str(e)}", 'error')
+
+def update_bot_status():
+    """更新机器人状态"""
+    global bot_status
+    if bot:
+        status_info = bot.get_status()
+        bot_status['status'] = status_info['status']
+        bot_status['reconnect_attempt'] = status_info.get('reconnect_attempt', 0)
+
 def check_server_status():
     """检查服务器状态并自动启动"""
     if not server_status['auto_check_enabled']:
         add_log("自动检查已暂停", 'info')
         return
+    
+    previous_status = server_status['status']
     
     try:
         # 检查状态 API
@@ -77,6 +113,24 @@ def check_server_status():
                     add_log(f"服务器启动请求已发送（自动启动次数: {server_status['auto_start_count']}）", 'success')
                 else:
                     add_log("服务器启动失败", 'error')
+                    
+                # 服务器停止，断开机器人
+                if bot and bot_status['status'] != 'offline':
+                    add_log("服务器已停止，断开机器人连接", 'info')
+                    bot.leave()
+                    
+            # 如果服务器刚启动，并且启用了自动加入，让机器人加入
+            elif server_status['status'] == 'running' and previous_status != 'running':
+                if bot and bot_status['auto_join'] and server_status['server_address']:
+                    add_log("检测到服务器已启动，机器人准备加入...", 'info')
+                    # 延迟几秒让服务器完全启动
+                    import threading
+                    def delayed_join():
+                        import time
+                        time.sleep(10)
+                        if server_status['status'] == 'running':
+                            bot.join(server_status['server_address'])
+                    threading.Thread(target=delayed_join, daemon=True).start()
         else:
             add_log(f"状态检查失败: HTTP {response.status_code}", 'error')
             server_status['status'] = 'error'
@@ -84,6 +138,9 @@ def check_server_status():
     except Exception as e:
         add_log(f"状态检查异常: {str(e)}", 'error')
         server_status['status'] = 'error'
+    
+    # 更新机器人状态
+    update_bot_status()
 
 def start_server():
     """启动服务器"""
@@ -160,12 +217,16 @@ def logout():
 @login_required
 def api_status():
     """获取当前状态和日志"""
+    update_bot_status()
     return jsonify({
         'status': server_status['status'],
         'server_address': server_status['server_address'],
         'last_check': server_status['last_check'],
         'auto_start_count': server_status['auto_start_count'],
         'auto_check_enabled': server_status['auto_check_enabled'],
+        'bot_status': bot_status['status'],
+        'bot_username': bot_status['username'],
+        'bot_auto_join': bot_status['auto_join'],
         'logs': logs[:50]  # 只返回最近 50 条日志
     })
 
@@ -300,6 +361,82 @@ def api_console_command():
             'message': f'命令发送异常: {str(e)}'
         }), 500
 
+@app.route('/api/bot-join', methods=['POST'])
+@login_required
+def api_bot_join():
+    if not bot:
+        return jsonify({
+            'success': False,
+            'message': '机器人未初始化'
+        }), 500
+    
+    if server_status['status'] != 'running':
+        return jsonify({
+            'success': False,
+            'message': '服务器未运行'
+        }), 400
+    
+    if not server_status['server_address']:
+        return jsonify({
+            'success': False,
+            'message': '服务器地址未知'
+        }), 400
+    
+    try:
+        add_log(f"手动让机器人加入服务器: {server_status['server_address']}", 'info')
+        bot.join(server_status['server_address'])
+        return jsonify({
+            'success': True,
+            'message': '机器人正在加入服务器'
+        })
+    except Exception as e:
+        add_log(f"机器人加入失败: {str(e)}", 'error')
+        return jsonify({
+            'success': False,
+            'message': f'加入失败: {str(e)}'
+        }), 500
+
+@app.route('/api/bot-leave', methods=['POST'])
+@login_required
+def api_bot_leave():
+    """让机器人离开服务器"""
+    if not bot:
+        return jsonify({
+            'success': False,
+            'message': '机器人未初始化'
+        }), 500
+    
+    try:
+        add_log("手动让机器人离开服务器", 'info')
+        bot.leave()
+        return jsonify({
+            'success': True,
+            'message': '机器人已离开服务器'
+        })
+    except Exception as e:
+        add_log(f"机器人离开失败: {str(e)}", 'error')
+        return jsonify({
+            'success': False,
+            'message': f'离开失败: {str(e)}'
+        }), 500
+
+@app.route('/api/bot-toggle-auto', methods=['POST'])
+@login_required
+def api_bot_toggle_auto():
+    """切换机器人自动加入"""
+    global bot_status
+    bot_status['auto_join'] = not bot_status['auto_join']
+    if bot:
+        bot.auto_join = bot_status['auto_join']
+    
+    status = "已启用" if bot_status['auto_join'] else "已禁用"
+    add_log(f"机器人自动加入{status}", 'info')
+    
+    return jsonify({
+        'success': True,
+        'auto_join': bot_status['auto_join']
+    })
+
 # 初始化调度器
 scheduler = BackgroundScheduler()
 scheduler.add_job(
@@ -318,11 +455,19 @@ add_log(f"服务器 ID: {Config.MINEHOST_SERVER_ID}", 'info')
 add_log(f"检查间隔: {Config.CHECK_INTERVAL} 秒", 'info')
 Config.validate()
 
+# 初始化机器人
+init_bot()
+
 # 启动时立即检查一次
 check_server_status()
 
-# 确保应用退出时关闭调度器
-atexit.register(lambda: scheduler.shutdown())
+# 确保应用退出时关闭调度器和机器人
+def cleanup():
+    scheduler.shutdown()
+    if bot:
+        bot.shutdown()
+        
+atexit.register(cleanup)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=7860, debug=False)
