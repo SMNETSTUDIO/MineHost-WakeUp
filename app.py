@@ -10,7 +10,6 @@ from bot import get_bot_instance
 app = Flask(__name__)
 app.config['SECRET_KEY'] = Config.SECRET_KEY
 
-# 全局状态
 server_status = {
     'status': 'unknown',
     'server_address': '',
@@ -20,22 +19,18 @@ server_status = {
     'auto_check_enabled': True
 }
 
-# 机器人状态
 bot_status = {
     'status': 'offline',
     'username': Config.BOT_USERNAME,
     'auto_join': Config.BOT_AUTO_JOIN
 }
 
-# 初始化机器人实例
 bot = None
 
-# 日志列表（保存最近 100 条）
 logs = []
 MAX_LOGS = 100
 
 def add_log(message, level='info'):
-    """添加日志"""
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     log_entry = {
         'timestamp': timestamp,
@@ -48,7 +43,6 @@ def add_log(message, level='info'):
     print(f"[{timestamp}] [{level.upper()}] {message}")
 
 def init_bot():
-    """初始化机器人"""
     global bot, bot_status
     try:
         bot = get_bot_instance(
@@ -63,7 +57,6 @@ def init_bot():
         add_log(f"机器人初始化失败: {str(e)}", 'error')
 
 def update_bot_status():
-    """更新机器人状态"""
     global bot_status
     if bot:
         status_info = bot.get_status()
@@ -71,7 +64,6 @@ def update_bot_status():
         bot_status['reconnect_attempt'] = status_info.get('reconnect_attempt', 0)
 
 def check_server_status():
-    """检查服务器状态并自动启动"""
     if not server_status['auto_check_enabled']:
         add_log("自动检查已暂停", 'info')
         return
@@ -79,7 +71,6 @@ def check_server_status():
     previous_status = server_status['status']
     
     try:
-        # 检查状态 API
         headers = {
             'sec-ch-ua-platform': '"Windows"',
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36 Edg/142.0.0.0',
@@ -104,7 +95,6 @@ def check_server_status():
             
             add_log(f"服务器状态: {server_status['status']}", 'info')
             
-            # 如果服务器已停止，尝试启动
             if server_status['status'] == 'stopped':
                 add_log("检测到服务器已停止，尝试启动...", 'warning')
                 start_result = start_server()
@@ -114,16 +104,13 @@ def check_server_status():
                 else:
                     add_log("服务器启动失败", 'error')
                     
-                # 服务器停止，断开机器人
                 if bot and bot_status['status'] != 'offline':
                     add_log("服务器已停止，断开机器人连接", 'info')
                     bot.leave()
                     
-            # 如果服务器刚启动，并且启用了自动加入，让机器人加入
             elif server_status['status'] == 'running' and previous_status != 'running':
                 if bot and bot_status['auto_join'] and server_status['server_address']:
                     add_log("检测到服务器已启动，机器人准备加入...", 'info')
-                    # 延迟几秒让服务器完全启动
                     import threading
                     def delayed_join():
                         import time
@@ -139,7 +126,6 @@ def check_server_status():
         add_log(f"状态检查异常: {str(e)}", 'error')
         server_status['status'] = 'error'
     
-    # 更新机器人状态
     update_bot_status()
 
 def start_server():
@@ -176,7 +162,6 @@ def start_server():
         add_log(f"启动请求异常: {str(e)}", 'error')
         return False
 
-# 密码认证装饰器
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -185,16 +170,13 @@ def login_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-# 路由
 @app.route('/')
 @login_required
 def index():
-    """主页"""
     return render_template('index.html')
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    """登录页面"""
     if request.method == 'POST':
         password = request.form.get('password', '')
         if password == Config.WEB_PASSWORD:
@@ -208,15 +190,17 @@ def login():
 
 @app.route('/logout')
 def logout():
-    """登出"""
     session.pop('logged_in', None)
     add_log("用户已登出", 'info')
     return redirect(url_for('login'))
 
+@app.route('/play')
+def play():
+    return render_template('play.html')
+
 @app.route('/api/status')
 @login_required
 def api_status():
-    """获取当前状态和日志"""
     update_bot_status()
     return jsonify({
         'status': server_status['status'],
@@ -227,18 +211,24 @@ def api_status():
         'bot_status': bot_status['status'],
         'bot_username': bot_status['username'],
         'bot_auto_join': bot_status['auto_join'],
-        'logs': logs[:50]  # 只返回最近 50 条日志
+        'logs': logs[:50]
+    })
+
+@app.route('/api/play-status')
+def api_play_status():
+    return jsonify({
+        'status': server_status['status'],
+        'server_address': server_status['server_address'],
+        'last_check': server_status['last_check']
     })
 
 @app.route('/api/start', methods=['POST'])
 @login_required
 def api_start():
-    """手动启动服务器"""
     add_log("手动启动服务器请求", 'info')
     result = start_server()
     if result:
         add_log("手动启动成功", 'success')
-        # 立即检查状态
         check_server_status()
         return jsonify({'success': True, 'message': '启动请求已发送'})
     else:
@@ -247,7 +237,6 @@ def api_start():
 @app.route('/api/toggle-auto', methods=['POST'])
 @login_required
 def api_toggle_auto():
-    """暂停/恢复自动检查"""
     server_status['auto_check_enabled'] = not server_status['auto_check_enabled']
     status = "已恢复" if server_status['auto_check_enabled'] else "已暂停"
     add_log(f"自动检查{status}", 'info')
@@ -259,7 +248,6 @@ def api_toggle_auto():
 @app.route('/api/check-now', methods=['POST'])
 @login_required
 def api_check_now():
-    """立即检查状态"""
     add_log("手动触发状态检查", 'info')
     check_server_status()
     return jsonify({'success': True, 'message': '状态检查已完成'})
@@ -267,7 +255,6 @@ def api_check_now():
 @app.route('/api/console-info')
 @login_required
 def api_console_info():
-    """获取控制台 WebSocket 连接信息"""
     if server_status['status'] != 'running':
         return jsonify({
             'success': False,
@@ -292,7 +279,6 @@ def api_console_info():
 @app.route('/api/console-command', methods=['POST'])
 @login_required
 def api_console_command():
-    """发送控制台命令"""
     if not Config.MINEHOST_COOKIE:
         return jsonify({
             'success': False,
@@ -322,7 +308,6 @@ def api_console_command():
             'Cookie': Config.MINEHOST_COOKIE
         }
         
-        # 构造表单数据
         form_data = {
             '_drupal_ajax': '1',
             '_triggering_element_name': 'op',
@@ -437,7 +422,6 @@ def api_bot_toggle_auto():
         'auto_join': bot_status['auto_join']
     })
 
-# 初始化调度器
 scheduler = BackgroundScheduler()
 scheduler.add_job(
     func=check_server_status,
@@ -449,19 +433,15 @@ scheduler.add_job(
 )
 scheduler.start()
 
-# 应用启动时的初始化
 add_log("MineHost 监控服务已启动", 'success')
 add_log(f"服务器 ID: {Config.MINEHOST_SERVER_ID}", 'info')
 add_log(f"检查间隔: {Config.CHECK_INTERVAL} 秒", 'info')
 Config.validate()
 
-# 初始化机器人
 init_bot()
 
-# 启动时立即检查一次
 check_server_status()
 
-# 确保应用退出时关闭调度器和机器人
 def cleanup():
     scheduler.shutdown()
     if bot:
