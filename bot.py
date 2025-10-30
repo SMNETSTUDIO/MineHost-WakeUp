@@ -15,19 +15,36 @@ class MinecraftBot(ClientProtocol):
     def __init__(self, factory, addr):
         super().__init__(factory, addr)
         self.display_name = factory.display_name
+    
+    def connection_made(self):
+        """连接建立时调用"""
+        super().connection_made()
+        logger.info(f"机器人 {self.display_name} 已连接到服务器")
+        if self.factory.bot_manager:
+            self.factory.bot_manager.on_connected()
+    
+    def connection_lost(self, reason=None):
+        """连接丢失时调用（网络断开、服务器崩溃等）"""
+        super().connection_lost(reason)
+        logger.info(f"机器人 {self.display_name} 连接丢失: {reason}")
+        if self.factory.bot_manager:
+            self.factory.bot_manager.on_disconnected(f"连接丢失: {reason}")
         
     def packet_position_look(self, buff):
+        """处理服务器发来的位置和视角包"""
         buff.unpack('dddff?')
         
     def packet_keep_alive(self, buff):
+        """响应服务器的 keep-alive 包"""
         identifier = buff.unpack('Q')
         self.send_packet('keep_alive', self.buff_type.pack('Q', identifier))
         
     def packet_disconnect(self, buff):
+        """处理服务器主动断开连接"""
         reason = buff.unpack_chat()
-        logger.info(f"机器人 {self.display_name} 被断开: {reason}")
+        logger.info(f"机器人 {self.display_name} 被服务器断开: {reason}")
         if self.factory.bot_manager:
-            self.factory.bot_manager.on_disconnected(reason)
+            self.factory.bot_manager.on_disconnected(f"服务器断开: {reason}")
 
 
 class BotFactory(ClientFactory):
@@ -147,9 +164,8 @@ class BotManager:
             def connect():
                 try:
                     self.connector = reactor.connectTCP(self.host, self.port, self.factory)
-                    self.add_log(f"机器人 {self.username} 正在连接...", 'info')
-                    self.set_status('online')
-                    self.current_reconnect_attempt = 0
+                    self.add_log(f"机器人 {self.username} 正在连接到 {self.host}:{self.port}...", 'info')
+                    # 注意：不在这里设置 online，等待 on_connected 回调
                 except Exception as e:
                     self.add_log(f"连接失败: {str(e)}", 'error')
                     self.set_status('error')
@@ -164,20 +180,31 @@ class BotManager:
             return False
     
     def leave(self):
+        """手动离开服务器（不会触发自动重连）"""
         try:
+            # 临时禁用自动加入以防止重连
+            auto_join_backup = self.auto_join
+            self.auto_join = False
+            
             if self.connector and self.reactor_running:
                 connector_ref = self.connector
                 def disconnect():
                     try:
                         if connector_ref is not None:
                             connector_ref.disconnect()
-                            self.add_log(f"机器人 {self.username} 已断开连接", 'info')
+                            self.add_log(f"机器人 {self.username} 已手动断开连接", 'info')
                     except Exception as e:
                         self.add_log(f"断开连接时出错: {str(e)}", 'warning')
                 
                 reactor.callFromThread(disconnect)
             elif self.connector:
                 self.add_log(f"机器人 {self.username} 已断开连接 (reactor未运行)", 'info')
+            
+            # 等待一小段时间让断开连接完成
+            time.sleep(0.5)
+            
+            # 恢复自动加入设置
+            self.auto_join = auto_join_backup
                 
             self.connector = None
             self.factory = None
@@ -189,12 +216,24 @@ class BotManager:
             self.add_log(f"离开服务器失败: {str(e)}", 'error')
             return False
     
+    def on_connected(self):
+        """连接成功时调用"""
+        self.add_log(f"机器人 {self.username} 成功加入服务器！", 'success')
+        self.set_status('online')
+        self.current_reconnect_attempt = 0  # 重置重连计数
+    
     def on_disconnected(self, reason):
+        """连接断开时调用"""
         self.add_log(f"连接断开: {reason}", 'warning')
+        
+        # 清理连接
+        self.connector = None
+        self.factory = None
         self.set_status('offline')
         
-        # 尝试重连（如果启用了自动加入）
+        # 尝试重连（如果启用了自动加入且有服务器地址）
         if self.auto_join and self.host:
+            self.add_log("准备自动重连...", 'info')
             self.schedule_reconnect()
     
     def schedule_reconnect(self):
