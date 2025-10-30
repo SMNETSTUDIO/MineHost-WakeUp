@@ -14,7 +14,7 @@ class MinecraftBot(ClientProtocol):
     
     def __init__(self, factory, addr):
         super().__init__(factory, addr)
-        self.username = factory.username
+        self.display_name = factory.display_name
         
     def packet_position_look(self, buff):
         buff.unpack('dddff?')
@@ -25,7 +25,7 @@ class MinecraftBot(ClientProtocol):
         
     def packet_disconnect(self, buff):
         reason = buff.unpack_chat()
-        logger.info(f"机器人 {self.username} 被断开: {reason}")
+        logger.info(f"机器人 {self.display_name} 被断开: {reason}")
         if self.factory.bot_manager:
             self.factory.bot_manager.on_disconnected(reason)
 
@@ -35,14 +35,19 @@ class BotFactory(ClientFactory):
     
     def __init__(self, username, bot_manager=None):
         super().__init__()
-        self.username = username
+        self.display_name = username
         self.bot_manager = bot_manager
-        self.online_mode = False  # 离线模式
+        self.online_mode = False
+        self.profile = type('Profile', (), {
+            'name': username,
+            'display_name': username,
+            'uuid': None
+        })()
         
     def buildProtocol(self, addr):
         """构建协议实例"""
         protocol = self.protocol(self, addr)
-        protocol.username = self.username
+        protocol.display_name = self.display_name
         return protocol
 
 
