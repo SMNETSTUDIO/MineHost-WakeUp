@@ -88,6 +88,20 @@ def check_server_status():
         
         if response.status_code == 200:
             data = response.json()
+            
+            if isinstance(data, list):
+                add_log(f"API 返回列表类型数据，长度: {len(data)}", 'warning')
+                if len(data) > 0 and isinstance(data[0], dict):
+                    data = data[0]  # 使用列表的第一个元素
+                else:
+                    add_log("API 返回的列表数据格式异常", 'error')
+                    server_status['status'] = 'error'
+                    return
+            elif not isinstance(data, dict):
+                add_log(f"API 返回未知数据类型: {type(data)}", 'error')
+                server_status['status'] = 'error'
+                return
+            
             server_status['status'] = data.get('status', 'unknown')
             server_status['server_address'] = data.get('server_address', '')
             server_status['logs_access_token'] = data.get('logs_access_token', '')
