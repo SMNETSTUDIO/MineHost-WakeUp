@@ -57,6 +57,31 @@
                 </div>
             </div>
 
+            <!-- 机器人控制 -->
+            <div class="card">
+                <h2 class="card-title">🤖 机器人控制</h2>
+                <div class="bot-info">
+                    <div class="bot-status-display">
+                        <div class="bot-status-indicator" id="botStatusIndicator">
+                            <span class="bot-status-dot"></span>
+                            <span class="bot-status-text" id="botStatusText">离线</span>
+                        </div>
+                        <div class="bot-username" id="botUsername">WakeUpBot</div>
+                    </div>
+                    <div class="bot-controls">
+                        <button class="btn btn-success" id="btnBotJoin" onclick="joinBot()">
+                            ▶️ 加入服务器
+                        </button>
+                        <button class="btn btn-danger" id="btnBotLeave" onclick="leaveBot()">
+                            ⏹️ 离开服务器
+                        </button>
+                        <button class="btn btn-secondary" id="btnToggleBotAuto" onclick="toggleBotAuto()">
+                            🔄 自动加入
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             <!-- 服务器控制台 -->
             <div class="card full-width">
                 <h2 class="card-title">
