@@ -13,6 +13,7 @@ app.config['SECRET_KEY'] = Config.SECRET_KEY
 server_status = {
     'status': 'unknown',
     'server_address': '',
+    'logs_access_token': '',
     'last_check': None,
     'auto_start_count': 0,
     'auto_check_enabled': True
@@ -62,6 +63,7 @@ def check_server_status():
             data = response.json()
             server_status['status'] = data.get('status', 'unknown')
             server_status['server_address'] = data.get('server_address', '')
+            server_status['logs_access_token'] = data.get('logs_access_token', '')
             server_status['last_check'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
             add_log(f"服务器状态: {server_status['status']}", 'info')
@@ -200,6 +202,103 @@ def api_check_now():
     add_log("手动触发状态检查", 'info')
     check_server_status()
     return jsonify({'success': True, 'message': '状态检查已完成'})
+
+@app.route('/api/console-info')
+@login_required
+def api_console_info():
+    """获取控制台 WebSocket 连接信息"""
+    if server_status['status'] != 'running':
+        return jsonify({
+            'success': False,
+            'message': '服务器未运行'
+        }), 400
+    
+    if not server_status['server_address'] or not server_status['logs_access_token']:
+        return jsonify({
+            'success': False,
+            'message': '缺少连接信息'
+        }), 400
+    
+    ws_url = f"wss://logs.minehost.io/?target={server_status['server_address']}&token={server_status['logs_access_token']}"
+    
+    return jsonify({
+        'success': True,
+        'ws_url': ws_url,
+        'server_address': server_status['server_address'],
+        'token': server_status['logs_access_token']
+    })
+
+@app.route('/api/console-command', methods=['POST'])
+@login_required
+def api_console_command():
+    """发送控制台命令"""
+    if not Config.MINEHOST_COOKIE:
+        return jsonify({
+            'success': False,
+            'message': 'MINEHOST_COOKIE 未配置'
+        }), 500
+    
+    command = request.json.get('command', '')
+    if not command:
+        return jsonify({
+            'success': False,
+            'message': '命令不能为空'
+        }), 400
+    
+    try:
+        headers = {
+            'sec-ch-ua-platform': '"Windows"',
+            'X-Requested-With': 'XMLHttpRequest',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36 Edg/142.0.0.0',
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'sec-ch-ua': '"Chromium";v="142", "Microsoft Edge";v="142", "Not_A Brand";v="99"',
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'sec-ch-ua-mobile': '?0',
+            'Sec-Fetch-Site': 'same-origin',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Dest': 'empty',
+            'host': 'www.minehost.io',
+            'Cookie': Config.MINEHOST_COOKIE
+        }
+        
+        # 构造表单数据
+        form_data = {
+            '_drupal_ajax': '1',
+            '_triggering_element_name': 'op',
+            '_triggering_element_value': 'Send',
+            'ajax_page_state[libraries]': 'eJxtTlt2AiEM3RAMS_LE4ZZGgbRJGJ3dF9vxQ09_8rivhHJ2ob4nOoblQ6V7oGzohnT0ZTULqyhS1vFFdaHVeUOs3K-v-IXufwB3h_YJXb4HdOaKtoC7PyxP9bGGIlIqTjTlu_Nq6R0IjTs-xfw0OJUqZ6rRfJ_m8kIZdIPGKsXixrhB_6PNyYfFNuPLVBg7bpznuQr1-Th7sN0cLZ3JEB5Bln7r0iSPih8-z3kw',
+            'ajax_page_state[theme]': 'minehost_ui',
+            'ajax_page_state[theme_token]': '',
+            'command': command,
+            'form_build_id': 'form-wAu9OZekYK120Q8pbxPEg9cPqvcniO2JF8LlsxxTP24',
+            'form_id': 'server_console_form',
+            'form_token': 'f1u4EKkmK_6sK7ag1BF2ClF8BgW70I79nAxTahn0Ww8',
+            'server_custom_domain': ''
+        }
+        
+        console_url = f'https://www.minehost.io/server/{Config.MINEHOST_SERVER_ID}/console?ajax_form=1&_wrapper_format=drupal_ajax'
+        
+        response = requests.post(console_url, headers=headers, data=form_data, timeout=10)
+        
+        if response.status_code == 200:
+            add_log(f"控制台命令已发送: {command}", 'info')
+            return jsonify({
+                'success': True,
+                'message': '命令已发送'
+            })
+        else:
+            add_log(f"控制台命令发送失败: HTTP {response.status_code}", 'error')
+            return jsonify({
+                'success': False,
+                'message': f'命令发送失败: HTTP {response.status_code}'
+            }), 500
+            
+    except Exception as e:
+        add_log(f"控制台命令发送异常: {str(e)}", 'error')
+        return jsonify({
+            'success': False,
+            'message': f'命令发送异常: {str(e)}'
+        }), 500
 
 # 初始化调度器
 scheduler = BackgroundScheduler()
