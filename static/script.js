@@ -76,6 +76,9 @@ async function updateStatus() {
             btnToggleAuto.classList.add('btn-primary');
         }
         
+        // 更新机器人状态
+        updateBotStatus(data);
+        
         // 更新日志
         updateLogs(data.logs || []);
         
@@ -249,9 +252,6 @@ style.textContent = `
 `;
 document.head.appendChild(style);
 
-// ==================== 控制台功能 ====================
-
-// 管理控制台连接
 function manageConsoleConnection(serverStatus) {
     if (serverStatus === 'running' && lastServerStatus !== 'running') {
         // 服务器刚启动，连接控制台
@@ -468,5 +468,134 @@ async function sendConsoleCommand() {
         
     } catch (error) {
         addConsoleMessage(`命令发送异常: ${error.message}`, 'error');
+    }
+}
+
+function updateBotStatus(data) {
+    const statusIndicator = document.getElementById('botStatusIndicator');
+    const statusText = document.getElementById('botStatusText');
+    const username = document.getElementById('botUsername');
+    const btnJoin = document.getElementById('btnBotJoin');
+    const btnLeave = document.getElementById('btnBotLeave');
+    const btnToggleBotAuto = document.getElementById('btnToggleBotAuto');
+    
+    if (data.bot_username) {
+        username.textContent = data.bot_username;
+    }
+    
+    statusIndicator.className = 'bot-status-indicator';
+    
+    switch(data.bot_status) {
+        case 'online':
+            statusIndicator.classList.add('online');
+            statusText.textContent = '在线';
+            btnJoin.disabled = true;
+            btnLeave.disabled = false;
+            break;
+        case 'connecting':
+            statusIndicator.classList.add('connecting');
+            statusText.textContent = '连接中...';
+            btnJoin.disabled = true;
+            btnLeave.disabled = false;
+            break;
+        case 'offline':
+            statusIndicator.classList.add('offline');
+            statusText.textContent = '离线';
+            btnJoin.disabled = false;
+            btnLeave.disabled = true;
+            break;
+        case 'error':
+            statusIndicator.classList.add('error');
+            statusText.textContent = '错误';
+            btnJoin.disabled = false;
+            btnLeave.disabled = false;
+            break;
+        default:
+            statusText.textContent = data.bot_status;
+    }
+    
+    // 更新自动加入按钮
+    if (data.bot_auto_join) {
+        btnToggleBotAuto.textContent = '🔄 自动加入: 开';
+        btnToggleBotAuto.classList.remove('btn-secondary');
+        btnToggleBotAuto.classList.add('btn-success');
+    } else {
+        btnToggleBotAuto.textContent = '🔄 自动加入: 关';
+        btnToggleBotAuto.classList.remove('btn-success');
+        btnToggleBotAuto.classList.add('btn-secondary');
+    }
+}
+
+// 让机器人加入服务器
+async function joinBot() {
+    const btn = document.getElementById('btnBotJoin');
+    btn.disabled = true;
+    
+    try {
+        const response = await fetch('/api/bot-join', {
+            method: 'POST'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showNotification('机器人正在加入服务器', 'success');
+            setTimeout(updateStatus, 1000);
+        } else {
+            showNotification(data.message || '加入失败', 'error');
+            btn.disabled = false;
+        }
+    } catch (error) {
+        showNotification('请求失败: ' + error.message, 'error');
+        btn.disabled = false;
+    }
+}
+
+// 让机器人离开服务器
+async function leaveBot() {
+    const btn = document.getElementById('btnBotLeave');
+    btn.disabled = true;
+    
+    try {
+        const response = await fetch('/api/bot-leave', {
+            method: 'POST'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showNotification('机器人已离开服务器', 'success');
+            setTimeout(updateStatus, 1000);
+        } else {
+            showNotification(data.message || '离开失败', 'error');
+        }
+    } catch (error) {
+        showNotification('请求失败: ' + error.message, 'error');
+    } finally {
+        btn.disabled = false;
+    }
+}
+
+// 切换机器人自动加入
+async function toggleBotAuto() {
+    const btn = document.getElementById('btnToggleBotAuto');
+    btn.disabled = true;
+    
+    try {
+        const response = await fetch('/api/bot-toggle-auto', {
+            method: 'POST'
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            const status = data.auto_join ? '已启用' : '已禁用';
+            showNotification(`机器人自动加入${status}`, 'success');
+            updateStatus();
+        }
+    } catch (error) {
+        showNotification('操作失败: ' + error.message, 'error');
+    } finally {
+        btn.disabled = false;
     }
 }
