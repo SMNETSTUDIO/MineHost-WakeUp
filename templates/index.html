@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MineHost 服务器监控</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>🎮 MineHost 服务器监控</h1>
+            <a href="/logout" class="btn-logout">登出</a>
+        </header>
+
+        <div class="dashboard">
+            <!-- 服务器状态卡片 -->
+            <div class="card">
+                <h2 class="card-title">服务器状态</h2>
+                <div class="status-display">
+                    <div class="status-indicator" id="statusIndicator">
+                        <span class="status-dot"></span>
+                        <span class="status-text" id="statusText">检查中...</span>
+                    </div>
+                    <div class="server-address" id="serverAddress"></div>
+                </div>
+            </div>
+
+            <!-- 统计信息卡片 -->
+            <div class="card">
+                <h2 class="card-title">统计信息</h2>
+                <div class="stats">
+                    <div class="stat-item">
+                        <div class="stat-label">自动启动次数</div>
+                        <div class="stat-value" id="autoStartCount">0</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-label">最后检查时间</div>
+                        <div class="stat-value small" id="lastCheck">--</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 控制面板 -->
+            <div class="card">
+                <h2 class="card-title">控制面板</h2>
+                <div class="controls">
+                    <button class="btn btn-primary" id="btnStart" onclick="startServer()">
+                        🚀 手动启动服务器
+                    </button>
+                    <button class="btn btn-secondary" id="btnToggleAuto" onclick="toggleAuto()">
+                        ⏸️ 暂停自动检查
+                    </button>
+                    <button class="btn btn-info" id="btnCheckNow" onclick="checkNow()">
+                        🔄 立即检查状态
+                    </button>
+                </div>
+            </div>
+
+            <!-- 操作日志 -->
+            <div class="card full-width">
+                <h2 class="card-title">操作日志</h2>
+                <div class="logs" id="logsContainer">
+                    <div class="log-item info">
+                        <span class="log-time">--:--:--</span>
+                        <span class="log-message">等待日志...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="footer">
+            <p>MineHost 服务器自动监控系统 | 每分钟自动检查服务器状态</p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
