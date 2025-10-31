@@ -176,6 +176,41 @@ def start_server():
         add_log(f"启动请求异常: {str(e)}", 'error')
         return False
 
+def renew_server():
+    """续期服务器"""
+    if not Config.MINEHOST_COOKIE:
+        add_log("错误: MINEHOST_COOKIE 未配置，无法续期", 'error')
+        return False
+    
+    try:
+        headers = {
+            'sec-ch-ua': '"Chromium";v="142", "Microsoft Edge";v="142", "Not_A Brand";v="99"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+            'Upgrade-Insecure-Requests': '1',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36 Edg/142.0.0.0',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'Sec-Fetch-Site': 'same-origin',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-User': '?1',
+            'Sec-Fetch-Dest': 'document',
+            'host': 'www.minehost.io',
+            'Cookie': Config.MINEHOST_COOKIE
+        }
+        
+        response = requests.get(Config.RENEW_URL, headers=headers, timeout=10)
+        
+        if response.status_code in [200, 302]:
+            add_log("服务器续期成功", 'success')
+            return True
+        else:
+            add_log(f"续期请求失败: HTTP {response.status_code}", 'error')
+            return False
+            
+    except Exception as e:
+        add_log(f"续期请求异常: {str(e)}", 'error')
+        return False
+
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -445,11 +480,20 @@ scheduler.add_job(
     name='检查服务器状态',
     replace_existing=True
 )
+scheduler.add_job(
+    func=renew_server,
+    trigger="interval",
+    seconds=600,
+    id='renew_server',
+    name='续期服务器',
+    replace_existing=True
+)
 scheduler.start()
 
 add_log("MineHost 监控服务已启动", 'success')
 add_log(f"服务器 ID: {Config.MINEHOST_SERVER_ID}", 'info')
 add_log(f"检查间隔: {Config.CHECK_INTERVAL} 秒", 'info')
+add_log("自动续期已启用，每10分钟执行一次", 'info')
 Config.validate()
 
 init_bot()
