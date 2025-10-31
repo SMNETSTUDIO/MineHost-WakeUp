@@ -14,6 +14,7 @@ class Config:
     
     STATUS_API_URL = f'https://www.minehost.io/api/server/{MINEHOST_SERVER_ID}/status'
     START_URL = f'https://www.minehost.io/server/{MINEHOST_SERVER_ID}/start'
+    RENEW_URL = f'https://www.minehost.io/server/{MINEHOST_SERVER_ID}/renew'
     
     BOT_USERNAME = os.environ.get('BOT_USERNAME', 'WakeUpBot')
     BOT_AUTO_JOIN = os.environ.get('BOT_AUTO_JOIN', 'true').lower() == 'true'
